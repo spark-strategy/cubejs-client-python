@@ -26,7 +26,7 @@ query/  (Query, dim/measure DSL, validate, PivotConfig)
 ### Core Implementation
 - Entry point: `cube(api_token, api_url=...)` factory in `__init__.py`, returning a `CubeClient` (@/src/cubejs_client/client/docs.md); `AsyncCubeClient` is constructed directly (no factory).
 - A `load()` call flows: caller's `Query`/dict -> `to_query_dict()` (@/src/cubejs_client/query/docs.md) -> `CubeClient.load()`/`AsyncCubeClient.load()` builds request params -> `run_polling_loop()`/`run_polling_loop_async()` (@/src/cubejs_client/client/docs.md) repeatedly calls `Transport.request()` (@/src/cubejs_client/transport/docs.md) -> response body passed through `decode_response_data()` -> wrapped in a `ResultSet` (@/src/cubejs_client/core/docs.md) -> caller optionally calls `.to_pandas()`/`.df` (@/src/cubejs_client/results/docs.md), optionally passing a `PivotConfig` (@/src/cubejs_client/query/docs.md).
-- `Meta`, `SqlQuery`, and `ProgressResult` are simpler value-object ports returned by `meta()`, `sql()`, and progress callbacks respectively; they hold a raw response dict and expose typed accessor methods rather than doing any transformation.
+- `Meta`, `SqlQuery`, and `ProgressResult` are simpler value-object ports returned by `meta()`, `sql()`, and progress callbacks respectively; they hold a raw response dict and expose typed accessor/lookup methods (e.g. `Meta.resolve_member()`, `Meta.members_grouped_by_cube()`) over it rather than doing network I/O of their own.
 
 ### Things to Know
 - `core/` is deliberately kept free of both a network transport and a pandas dependency — it is the part golden-tested against the JS SDK's own fixtures (@/tests/golden), and keeping it dependency-light keeps that verification surface small and independently testable.

@@ -13,6 +13,7 @@ compare/blending result).
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import math
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -26,6 +27,7 @@ from .time_series import (
     day_range,
     is_predefined_granularity,
     parse_datetime,
+    time_series_from_custom_interval,
 )
 
 QUERY_TYPE_REGULAR = "regularQuery"
@@ -39,6 +41,11 @@ def _measure_from_axis(axis_values: Sequence[Any]) -> Any:
     # Mirrors JS `axisValues[axisValues.length - 1]`, which yields `undefined`
     # (not a thrown error) when axisValues is empty.
     return axis_values[-1] if axis_values else None
+
+
+def _format_millis(d: "dt.datetime") -> str:
+    # Mirrors dayjs `.format('YYYY-MM-DDTHH:mm:ss.SSS')` (3-digit milliseconds).
+    return d.strftime("%Y-%m-%dT%H:%M:%S.") + f"{d.microsecond // 1000:03d}"
 
 
 class ResultSet:
@@ -167,16 +174,99 @@ class ResultSet:
             pad_to_day = granularity not in ("hour", "minute", "second")
 
         start, end = date_range[0], date_range[1]
-        rng = day_range(start, end)
+        rng = day_range(start, end, annotations)
 
         if is_predefined_granularity(granularity):
             effective_range = rng.snap_to("day") if pad_to_day else rng
             return TIME_SERIES[granularity](effective_range)
 
-        raise NotImplementedError(
-            f'Granularity "{granularity}" not found in time dimension '
-            f'"{time_dimension.get("dimension")}" (custom granularities are not supported yet)'
-        )
+        member = f"{time_dimension['dimension']}.{granularity}"
+        entry = (annotations or {}).get(member)
+        if entry is None:
+            raise ValueError(
+                f'Granularity "{granularity}" not found in time dimension "{time_dimension.get("dimension")}"'
+            )
+        return time_series_from_custom_interval(start, end, entry["granularity"])
+
+    # -- drill down --------------------------------------------------------
+
+    def drill_down(
+        self, drill_down_locator: Mapping[str, Any], pivot_config: Optional[dict] = None
+    ) -> Optional[dict]:
+        if self.query_type == QUERY_TYPE_COMPARE_DATE_RANGE:
+            raise ValueError("compareDateRange drillDown query is not currently supported")
+        if self.query_type == QUERY_TYPE_BLENDING:
+            raise ValueError("Data blending drillDown query is not currently supported")
+
+        query = self.load_responses[0]["query"]
+        x_values = drill_down_locator.get("xValues") or []
+        y_values = drill_down_locator.get("yValues") or []
+        normalized = self.normalize_pivot_config(pivot_config)
+
+        values: List[List[Any]] = []
+        for index, member in enumerate(normalized["x"]):
+            values.append([member, x_values[index] if index < len(x_values) else None])
+        for index, member in enumerate(normalized["y"]):
+            values.append([member, y_values[index] if index < len(y_values) else None])
+
+        own_query = self.query()
+        parent_filters = own_query.get("filters") or []
+        segments = own_query.get("segments") or []
+        measures = self.load_responses[0]["annotation"]["measures"]
+        time_dimensions_annotation = self.load_responses[0]["annotation"]["timeDimensions"]
+
+        measure_name = next((v[1] for v in values if v[0] == "measures"), None)
+        if measure_name is None:
+            measure_name = next(iter(measures.keys()), None)
+
+        if not (measures.get(measure_name, {}).get("drillMembers") or []):
+            return None
+
+        filters: list = [{"member": measure_name, "operator": "measureFilter"}, *parent_filters]
+        time_dimensions: list = []
+
+        for member, value in values:
+            if member == "measures":
+                continue
+            parts = member.split(".")
+            cube_name, dimension = parts[0], parts[1]
+            granularity = parts[2] if len(parts) > 2 else None
+
+            if granularity is not None:
+                rng = day_range(value, value, time_dimensions_annotation).snap_to(granularity)
+                original_time_dimension = next(
+                    (td for td in (query.get("timeDimensions") or []) if td.get("dimension")), None
+                )
+
+                range_start, range_end = rng.start, rng.end
+                if original_time_dimension and original_time_dimension.get("dateRange"):
+                    original_start, original_end = original_time_dimension["dateRange"]
+                    original_start, original_end = parse_datetime(original_start), parse_datetime(original_end)
+                    range_start = original_start if original_start > rng.start else rng.start
+                    range_end = original_end if original_end < rng.end else rng.end
+
+                time_dimensions.append(
+                    {
+                        "dimension": f"{cube_name}.{dimension}",
+                        "dateRange": [_format_millis(range_start), _format_millis(range_end)],
+                    }
+                )
+            elif value is None:
+                filters.append({"member": member, "operator": "notSet"})
+            else:
+                filters.append({"member": member, "operator": "equals", "values": [str(value)]})
+
+        query_time_dimensions = query.get("timeDimensions") or []
+        if not time_dimensions and query_time_dimensions and query_time_dimensions[0].get("granularity") is None:
+            time_dimensions.append(query_time_dimensions[0])
+
+        return {
+            **measures[measure_name].get("drillMembersGrouped", {}),
+            "filters": filters,
+            "timeDimensions": time_dimensions,
+            "segments": segments,
+            "timezone": query.get("timezone"),
+        }
 
     # -- pivot -----------------------------------------------------------
 

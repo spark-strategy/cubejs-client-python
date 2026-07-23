@@ -9,15 +9,15 @@ queries can be built with a fluent/operator DSL, while a faithful low-level core
 (`ResultSet`, pivoting, time-series generation) stays behaviorally verified
 against the JS SDK's own test fixtures.
 
-**Status:** Phases 0-3 — sync (`CubeClient`) and async (`AsyncCubeClient`) clients,
+**Status:** Phases 0-4 — sync (`CubeClient`) and async (`AsyncCubeClient`) clients,
 both sharing one core, with `load()`/`meta()`/`sql()`/`dry_run()`; `ResultSet` covers
 `regularQuery`, `compareDateRangeQuery`, and `blendingQuery` (`table_pivot`,
-`chart_pivot`, `pivot`, `table_columns`, `series`/`series_names`, `decompose`, etc.);
+`chart_pivot`, `pivot`, `table_columns`, `series`/`series_names`, `decompose`,
+`drill_down`, etc.), including custom (PostgreSQL-interval-style) time granularities;
 `.to_pandas()`/`.df`; the fluent/operator query builder (`Query`, `dim()`/`measure()`);
-and a `PivotConfig` builder for `to_pandas(pivot_config=...)`. Custom time
-granularities, `subscribe()`, and `cubeSql()` are tracked as later phases — see the
-project plan for the full roadmap. The client-side `format` module and WebSocket
-transport are out of scope.
+a `PivotConfig` builder for `to_pandas(pivot_config=...)`; and `Meta.members_grouped_by_cube()`.
+`subscribe()` and `cubeSql()` are tracked as later phases — see the project plan for the
+full roadmap. The client-side `format` module and WebSocket transport are out of scope.
 
 ## Install
 
