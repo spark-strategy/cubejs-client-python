@@ -27,8 +27,16 @@ verified example output and a list of differences from the JS SDK.
 ## Install
 
 ```bash
-pip install -e ".[dev]"
+pip install cubejs-client-python
 ```
+
+The distribution is `cubejs-client-python`; the import is `cubejs_client`:
+
+```python
+from cubejs_client import cube
+```
+
+For local development, see [Development](#development).
 
 ## Usage
 

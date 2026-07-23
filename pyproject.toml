@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cubejs-client"
+name = "cubejs-client-python"
 version = "0.1.0"
 description = "Pythonic client for Cube (cube.dev) semantic layer, with pandas integration (sync and async clients)"
 readme = "README.md"
