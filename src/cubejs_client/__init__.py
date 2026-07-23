@@ -14,10 +14,11 @@ from __future__ import annotations
 from typing import Callable, Optional, Union
 
 from .client.async_client import AsyncCubeClient
+from .client.subscription import AsyncSubscription, Subscription
 from .client.sync_client import CubeClient
 from .core.meta import Meta
 from .core.result_set import ResultSet
-from .errors import CubeError, MutexChangedError, RequestError
+from .errors import CubeError, CubeSqlError, MutexChangedError, RequestError
 from .models.progress import ProgressResult
 from .models.sql_query import SqlQuery
 from .query.builder import Filter, Member, dim, measure
@@ -44,12 +45,15 @@ __all__ = [
     "cube",
     "CubeClient",
     "AsyncCubeClient",
+    "Subscription",
+    "AsyncSubscription",
     "ResultSet",
     "Meta",
     "SqlQuery",
     "ProgressResult",
     "CubeError",
     "RequestError",
+    "CubeSqlError",
     "MutexChangedError",
     "Query",
     "PivotConfig",

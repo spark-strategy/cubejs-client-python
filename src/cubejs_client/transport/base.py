@@ -10,7 +10,7 @@ restructuring that avoids needing that callback machinery in Python.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Protocol
+from typing import Any, AsyncIterator, Iterator, Mapping, Optional, Protocol
 
 
 @dataclass
@@ -25,8 +25,31 @@ class Transport(Protocol):
 
     def request(self, method: str, params: Mapping[str, Any]) -> RawResponse: ...
 
+    def request_stream(
+        self,
+        api_method: str,
+        *,
+        params: Mapping[str, Any],
+        http_method: str = "POST",
+        fetch_timeout: Optional[float] = None,
+        base_request_id: Optional[str] = None,
+    ) -> Iterator[bytes]:
+        """Stream a response body as raw byte chunks (used by cube_sql_stream).
+        Optional — a transport may omit it, in which case streaming raises."""
+        ...
+
 
 class AsyncTransport(Protocol):
     authorization: Optional[str]
 
     async def request(self, method: str, params: Mapping[str, Any]) -> RawResponse: ...
+
+    def request_stream(
+        self,
+        api_method: str,
+        *,
+        params: Mapping[str, Any],
+        http_method: str = "POST",
+        fetch_timeout: Optional[float] = None,
+        base_request_id: Optional[str] = None,
+    ) -> AsyncIterator[bytes]: ...

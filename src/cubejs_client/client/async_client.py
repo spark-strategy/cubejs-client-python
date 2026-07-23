@@ -1,22 +1,26 @@
-"""Port of CubeApi (async half): load/meta/sql/dry_run. subscribe/cubeSql/streaming
-are later phases (see project plan). Kept in lockstep with sync_client.py by
-hand — same params/baseRequestId/decode wiring, `await`ed throughout.
+"""Port of CubeApi (async half): load/meta/sql/dry_run/cube_sql. Kept in lockstep
+with sync_client.py by hand — same params/baseRequestId/decode wiring, `await`ed
+throughout.
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, AsyncIterator, Callable, List, Optional, Union
 
+from ..core.cubesql import iter_cubesql_chunks_async, parse_cubesql_response
 from ..core.meta import Meta
 from ..core.response_decode import decode_response_data
 from ..core.result_set import ResultSet
+from ..errors import RequestError
 from ..models.progress import ProgressResult
 from ..models.sql_query import SqlQuery
-from ..query.model import QueryLike, to_query_dict
+from ..query.model import QueryLike, patch_query_response_format, to_query_dict
 from ..transport.base import AsyncTransport
 from ..transport.http_async import AsyncHttpTransport
-from .base import run_polling_loop_async
+from .base import run_polling_loop_async, run_subscribe_loop_async
+from .subscription import AsyncSubscription
 
 
 class AsyncCubeClient:
@@ -92,10 +96,12 @@ class AsyncCubeClient:
         cast_numerics: Optional[bool] = None,
         parse_date_measures: Optional[bool] = None,
         cache: Optional[str] = None,
+        response_format: str = "default",
         progress_callback: Optional[Callable[[ProgressResult], None]] = None,
     ) -> ResultSet:
+        query_dict = patch_query_response_format(to_query_dict(query), response_format)
         params = {
-            "query": to_query_dict(query),
+            "query": query_dict,
             "queryType": "multi",
             "baseRequestId": str(uuid.uuid4()),
         }
@@ -130,3 +136,84 @@ class AsyncCubeClient:
     async def dry_run(self, query: QueryLike) -> dict:
         params = {"query": to_query_dict(query), "baseRequestId": str(uuid.uuid4())}
         return await self._load_method(lambda: self._transport.request("dry-run", params), lambda body: body)
+
+    async def cube_sql(self, sql_query: str, *, timeout: Optional[float] = None, cache: Optional[str] = None) -> dict:
+        """Async twin of ``CubeClient.cube_sql`` — see there for semantics."""
+        params: dict = {
+            "query": sql_query,
+            "method": "POST",
+            "fetchTimeout": timeout,
+            "baseRequestId": str(uuid.uuid4()),
+            "throwContinueWait": True,
+        }
+        if cache:
+            params["cache"] = cache
+        return await self._load_method(lambda: self._transport.request("cubesql", params), parse_cubesql_response)
+
+    async def cube_sql_stream(
+        self, sql_query: str, *, timeout: Optional[float] = None, cache: Optional[str] = None
+    ) -> AsyncIterator[dict]:
+        """Async twin of ``CubeClient.cube_sql_stream`` — see there for semantics."""
+        request_stream = getattr(self._transport, "request_stream", None)
+        if request_stream is None:
+            raise RuntimeError("Transport does not support streaming")
+        self._update_authorization()
+        byte_chunks = request_stream(
+            "cubesql",
+            params={"query": sql_query, "cache": cache},
+            http_method="POST",
+            fetch_timeout=timeout,
+            base_request_id=str(uuid.uuid4()),
+        )
+        async for chunk in iter_cubesql_chunks_async(byte_chunks):
+            yield chunk
+
+    def subscribe(
+        self,
+        query: QueryLike,
+        callback: Callable[[Optional[RequestError], Optional[ResultSet]], Any],
+        *,
+        cast_numerics: Optional[bool] = None,
+        parse_date_measures: Optional[bool] = None,
+        cache: Optional[str] = None,
+    ) -> AsyncSubscription:
+        """Async twin of ``CubeClient.subscribe`` — runs the poll loop as an
+        ``asyncio.Task`` (cancelled by ``await subscription.unsubscribe()``).
+        The callback may be sync or async. Not a coroutine: it schedules the task
+        and returns immediately, so call it without ``await``."""
+        params: dict = {
+            "query": to_query_dict(query),
+            "queryType": "multi",
+            "baseRequestId": str(uuid.uuid4()),
+        }
+        if cache:
+            params["cache"] = cache
+
+        effective_cast_numerics = self._cast_numerics if cast_numerics is None else cast_numerics
+        effective_parse_dates = self._parse_date_measures if parse_date_measures is None else parse_date_measures
+
+        def to_result(body: dict) -> ResultSet:
+            decode_response_data(body, cast_numerics=effective_cast_numerics)
+            return ResultSet(body, {"parseDateMeasures": effective_parse_dates})
+
+        stop_event = asyncio.Event()
+
+        async def _run() -> None:
+            try:
+                await run_subscribe_loop_async(
+                    request_fn=lambda: self._transport.request("subscribe", params),
+                    to_result=to_result,
+                    callback=callback,
+                    should_stop=stop_event.is_set,
+                    poll_interval=self._poll_interval,
+                    network_error_retries=self._network_error_retries,
+                    update_authorization=self._update_authorization,
+                )
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:  # noqa: BLE001 - surfaced via AsyncSubscription.unsubscribe()
+                subscription.exception = exc
+
+        task = asyncio.create_task(_run())
+        subscription = AsyncSubscription(task, stop_event)
+        return subscription
