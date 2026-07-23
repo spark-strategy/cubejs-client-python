@@ -67,7 +67,14 @@ class Meta:
         grouped: Dict[str, List[dict]] = {"measures": [], "dimensions": [], "segments": [], "timeDimensions": []}
 
         for cube in self.cubes:
-            wrapper = {"cubeName": cube["name"], "cubeTitle": cube["title"], "type": cube["type"], "public": cube["public"]}
+            # `type`/`public` are optional on a cube; JS reads them as `undefined`
+            # when absent, so `.get` (-> None) rather than `[...]` (-> KeyError).
+            wrapper = {
+                "cubeName": cube["name"],
+                "cubeTitle": cube["title"],
+                "type": cube.get("type"),
+                "public": cube.get("public"),
+            }
             grouped["measures"].append({**wrapper, "members": cube.get("measures") or []})
             grouped["dimensions"].append({**wrapper, "members": cube.get("dimensions") or []})
             grouped["segments"].append({**wrapper, "members": cube.get("segments") or []})
