@@ -9,12 +9,15 @@ queries can be built with a fluent/operator DSL, while a faithful low-level core
 (`ResultSet`, pivoting, time-series generation) stays behaviorally verified
 against the JS SDK's own test fixtures.
 
-**Status:** MVP (Phase 1) — synchronous client, `load()`/`meta()`/`sql()`/`dry_run()`,
-`regularQuery` `ResultSet` (`table_pivot`, `chart_pivot`, `pivot`, `table_columns`,
-`annotation`, etc.), `.to_pandas()`/`.df`, and the query builder. Async client,
-`compareDateRangeQuery`/`blendingQuery`, custom time granularities, `subscribe()`,
-and `cubeSql()` are tracked as later phases — see the project plan for the full
-roadmap. The client-side `format` module and WebSocket transport are out of scope.
+**Status:** Phases 0-3 — sync (`CubeClient`) and async (`AsyncCubeClient`) clients,
+both sharing one core, with `load()`/`meta()`/`sql()`/`dry_run()`; `ResultSet` covers
+`regularQuery`, `compareDateRangeQuery`, and `blendingQuery` (`table_pivot`,
+`chart_pivot`, `pivot`, `table_columns`, `series`/`series_names`, `decompose`, etc.);
+`.to_pandas()`/`.df`; the fluent/operator query builder (`Query`, `dim()`/`measure()`);
+and a `PivotConfig` builder for `to_pandas(pivot_config=...)`. Custom time
+granularities, `subscribe()`, and `cubeSql()` are tracked as later phases — see the
+project plan for the full roadmap. The client-side `format` module and WebSocket
+transport are out of scope.
 
 ## Install
 
@@ -48,6 +51,32 @@ result_set = client.load(query)
 df = result_set.to_pandas()          # pandas DataFrame, typed via table_columns()
 rows = result_set.table_pivot()      # list[dict], byte-for-byte faithful to the JS SDK
 ```
+
+### Async client
+
+`AsyncCubeClient` mirrors `CubeClient` method-for-method (`load`/`meta`/`sql`/`dry_run`,
+same params and query-builder support), backed by `httpx.AsyncClient`:
+
+```python
+from cubejs_client import AsyncCubeClient
+
+client = AsyncCubeClient(api_token="CUBE-API-TOKEN", api_url="http://localhost:4000/cubejs-api/v1")
+result_set = await client.load({"measures": ["Orders.count"]})
+df = result_set.to_pandas()
+```
+
+### PivotConfig builder
+
+```python
+from cubejs_client import PivotConfig
+
+pivot_config = PivotConfig().x("Orders.createdAt.day").y("Orders.status", "measures")
+df = result_set.to_pandas(pivot_config=pivot_config)
+```
+
+`PivotConfig` is a Pythonic convenience accepted by `to_pandas()`; `ResultSet`'s own
+methods (`pivot`, `chart_pivot`, `table_pivot`, ...) stay faithful to the JS core and
+take plain dicts only — call `.build()` first if calling those directly.
 
 ## Development
 

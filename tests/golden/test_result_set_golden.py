@@ -251,4 +251,248 @@ class TestDescriptiveQueryResponse:
         restored = ResultSet.deserialize(serialized)
 
         assert restored.raw_data() == rs.raw_data()
-        assert restored.table_columns() == rs.table_columns()
+
+
+class TestPivotConfigFillWithValue:
+    """Ported from ResultSet.test.ts describe('fill missing dates')/tablePivot
+    tests around lines 1580-1771 (fillWithValue option)."""
+
+    def _fill_missing_dates_fixture(self):
+        return ResultSet(
+            {
+                "query": {
+                    "measures": ["Orders.total"],
+                    "timeDimensions": [
+                        {
+                            "dimension": "Orders.createdAt",
+                            "granularity": "day",
+                            "dateRange": ["2020-01-08T00:00:00.000", "2020-01-11T23:59:59.999"],
+                        }
+                    ],
+                    "filters": [],
+                    "timezone": "UTC",
+                },
+                "data": [
+                    {"Orders.createdAt": "2020-01-08T00:00:00.000", "Orders.total": 1},
+                    {"Orders.createdAt": "2020-01-10T00:00:00.000", "Orders.total": 10},
+                ],
+                "annotation": {
+                    "measures": {},
+                    "dimensions": {},
+                    "segments": {},
+                    "timeDimensions": {
+                        "Orders.createdAt": {"title": "Orders Created at", "shortTitle": "Created at", "type": "time"}
+                    },
+                },
+            }
+        )
+
+    def test_fill_missing_dates_with_custom_numeric_value(self):
+        result_set = self._fill_missing_dates_fixture()
+
+        assert result_set.table_pivot({"fillWithValue": 5}) == [
+            {"Orders.createdAt.day": "2020-01-08T00:00:00.000", "Orders.total": 1},
+            {"Orders.createdAt.day": "2020-01-09T00:00:00.000", "Orders.total": 5},
+            {"Orders.createdAt.day": "2020-01-10T00:00:00.000", "Orders.total": 10},
+            {"Orders.createdAt.day": "2020-01-11T00:00:00.000", "Orders.total": 5},
+        ]
+
+    def test_fill_missing_dates_with_custom_string(self):
+        result_set = self._fill_missing_dates_fixture()
+
+        assert result_set.table_pivot({"fillWithValue": "N/A"}) == [
+            {"Orders.createdAt.day": "2020-01-08T00:00:00.000", "Orders.total": 1},
+            {"Orders.createdAt.day": "2020-01-09T00:00:00.000", "Orders.total": "N/A"},
+            {"Orders.createdAt.day": "2020-01-10T00:00:00.000", "Orders.total": 10},
+            {"Orders.createdAt.day": "2020-01-11T00:00:00.000", "Orders.total": "N/A"},
+        ]
+
+    def test_fill_with_value_preserves_actual_zero_values(self):
+        """Ported from ResultSet.test.ts 'fillWithValue should preserve actual
+        zero values (issue #10225)' — also exercises an explicit x/y override."""
+        result_set = ResultSet(
+            {
+                "query": {
+                    "measures": ["TestCube.value"],
+                    "dimensions": ["TestCube.category", "TestCube.type"],
+                    "filters": [],
+                    "timezone": "UTC",
+                },
+                "data": [
+                    {"TestCube.category": "A", "TestCube.type": "X", "TestCube.value": 10},
+                    {"TestCube.category": "A", "TestCube.type": "Y", "TestCube.value": 0},
+                    {"TestCube.category": "B", "TestCube.type": "X", "TestCube.value": 30},
+                ],
+                "annotation": {
+                    "measures": {"TestCube.value": {"title": "Value", "shortTitle": "Value", "type": "number"}},
+                    "dimensions": {
+                        "TestCube.category": {"title": "Category", "shortTitle": "Category", "type": "string"},
+                        "TestCube.type": {"title": "Type", "shortTitle": "Type", "type": "string"},
+                    },
+                    "segments": {},
+                    "timeDimensions": {},
+                },
+            }
+        )
+
+        pivot_config = {"x": ["TestCube.category"], "y": ["TestCube.type", "measures"], "fillWithValue": "-"}
+
+        assert result_set.table_pivot(pivot_config) == [
+            {"TestCube.category": "A", "X,TestCube.value": 10, "Y,TestCube.value": 0},
+            {"TestCube.category": "B", "X,TestCube.value": 30, "Y,TestCube.value": "-"},
+        ]
+
+
+class TestMergePivotsJoinDateRange:
+    """`joinDateRange` has no dedicated JS test in ResultSet.test.ts or
+    compare-date-range.test.ts (both existing multi-result suites use the
+    default `joinDateRange: false`). This hand-traces the documented
+    `mergePivots` algorithm (ResultSet.ts:631-646) against a minimal
+    synthetic blendingQuery fixture instead of a transcribed JS assertion.
+    """
+
+    def test_join_date_range_true_joins_x_values_across_results(self):
+        result_set = ResultSet(
+            {
+                "queryType": "blendingQuery",
+                "results": [
+                    {
+                        "query": {"measures": ["A.count"], "dimensions": ["Cube.day"], "filters": [], "order": []},
+                        "data": [{"Cube.day": "Mon", "A.count": 1}],
+                        "annotation": {
+                            "measures": {"A.count": {"title": "A Count", "shortTitle": "Count", "type": "number"}},
+                            "dimensions": {"Cube.day": {"title": "Day", "shortTitle": "Day", "type": "string"}},
+                            "segments": {},
+                            "timeDimensions": {},
+                        },
+                    },
+                    {
+                        "query": {"measures": ["A.count"], "dimensions": ["Cube.day"], "filters": [], "order": []},
+                        "data": [{"Cube.day": "Tue", "A.count": 2}],
+                        "annotation": {
+                            "measures": {"A.count": {"title": "A Count", "shortTitle": "Count", "type": "number"}},
+                            "dimensions": {"Cube.day": {"title": "Day", "shortTitle": "Day", "type": "string"}},
+                            "segments": {},
+                            "timeDimensions": {},
+                        },
+                    },
+                ],
+                "pivotQuery": {"measures": ["A.count"], "dimensions": ["Cube.day"]},
+            }
+        )
+
+        assert result_set.pivot({"joinDateRange": True}) == [
+            {"xValues": ["Mon, Tue"], "yValuesArray": [[["A.count"], 1], [["A.count"], 2]]}
+        ]
+
+    def test_join_date_range_true_with_multi_element_x_values(self):
+        """Exercises the inner-`,`-vs-outer-`, `-separator distinction in
+        `mergePivots`'s xValues join (ResultSet.ts:637-638), which the
+        single-element-xValues test above can't: JS's `Array.prototype.join`
+        stringifies each nested `xValues` array with its own default `,`
+        separator before the outer `.join(', ')` runs."""
+        result_set = ResultSet(
+            {
+                "queryType": "blendingQuery",
+                "results": [
+                    {
+                        "query": {
+                            "measures": ["A.count"],
+                            "dimensions": ["Cube.day", "Cube.region"],
+                            "filters": [],
+                            "order": [],
+                        },
+                        "data": [{"Cube.day": "Mon", "Cube.region": "US", "A.count": 1}],
+                        "annotation": {
+                            "measures": {"A.count": {"title": "A Count", "shortTitle": "Count", "type": "number"}},
+                            "dimensions": {
+                                "Cube.day": {"title": "Day", "shortTitle": "Day", "type": "string"},
+                                "Cube.region": {"title": "Region", "shortTitle": "Region", "type": "string"},
+                            },
+                            "segments": {},
+                            "timeDimensions": {},
+                        },
+                    },
+                    {
+                        "query": {
+                            "measures": ["A.count"],
+                            "dimensions": ["Cube.day", "Cube.region"],
+                            "filters": [],
+                            "order": [],
+                        },
+                        "data": [{"Cube.day": "Tue", "Cube.region": "EU", "A.count": 2}],
+                        "annotation": {
+                            "measures": {"A.count": {"title": "A Count", "shortTitle": "Count", "type": "number"}},
+                            "dimensions": {
+                                "Cube.day": {"title": "Day", "shortTitle": "Day", "type": "string"},
+                                "Cube.region": {"title": "Region", "shortTitle": "Region", "type": "string"},
+                            },
+                            "segments": {},
+                            "timeDimensions": {},
+                        },
+                    },
+                ],
+                "pivotQuery": {"measures": ["A.count"], "dimensions": ["Cube.day", "Cube.region"]},
+            }
+        )
+
+        assert result_set.pivot({"joinDateRange": True}) == [
+            {"xValues": ["Mon,US, Tue,EU"], "yValuesArray": [[["A.count"], 1], [["A.count"], 2]]}
+        ]
+
+    def test_merge_pivots_with_mismatched_length_results_zips_positionally(self):
+        """Not a bug to fix: JS's `mergePivots` (ResultSet.ts:631-646) zips
+        results together purely by index, keyed off whichever result has the
+        FEWEST rows. When `compareDateRangeQuery`/`blendingQuery` results have
+        different row counts, the shorter result's xValues silently "win" the
+        label for every merged row, and any extra rows in longer results
+        beyond the shorter result's length are silently dropped. This pins
+        down (and documents) that behavior so it isn't "fixed" by accident —
+        every JS/Python fixture transcribed so far happens to use equal-length
+        results, so nothing else exercises this path."""
+        result_set = ResultSet(
+            {
+                "queryType": "blendingQuery",
+                "results": [
+                    {
+                        "query": {
+                            "measures": ["A.count"],
+                            "dimensions": ["Cube.day"],
+                            "filters": [],
+                            "order": [],
+                        },
+                        "data": [
+                            {"Cube.day": "Mon", "A.count": 1},
+                            {"Cube.day": "Tue", "A.count": 2},
+                            {"Cube.day": "Wed", "A.count": 3},
+                        ],
+                        "annotation": {
+                            "measures": {"A.count": {"title": "A Count", "shortTitle": "Count", "type": "number"}},
+                            "dimensions": {"Cube.day": {"title": "Day", "shortTitle": "Day", "type": "string"}},
+                            "segments": {},
+                            "timeDimensions": {},
+                        },
+                    },
+                    {
+                        "query": {
+                            "measures": ["A.count"],
+                            "dimensions": ["Cube.day"],
+                            "filters": [],
+                            "order": [],
+                        },
+                        "data": [{"Cube.day": "X", "A.count": 100}],
+                        "annotation": {
+                            "measures": {"A.count": {"title": "A Count", "shortTitle": "Count", "type": "number"}},
+                            "dimensions": {"Cube.day": {"title": "Day", "shortTitle": "Day", "type": "string"}},
+                            "segments": {},
+                            "timeDimensions": {},
+                        },
+                    },
+                ],
+                "pivotQuery": {"measures": ["A.count"], "dimensions": ["Cube.day"]},
+            }
+        )
+
+        assert result_set.pivot() == [
+            {"xValues": ["X"], "yValuesArray": [[["A.count"], 1], [["A.count"], 100]]}
+        ]

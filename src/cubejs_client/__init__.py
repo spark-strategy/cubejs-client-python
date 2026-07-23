@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional, Union
 
+from .client.async_client import AsyncCubeClient
 from .client.sync_client import CubeClient
 from .core.meta import Meta
 from .core.result_set import ResultSet
@@ -21,6 +22,7 @@ from .models.progress import ProgressResult
 from .models.sql_query import SqlQuery
 from .query.builder import Filter, Member, dim, measure
 from .query.model import Query
+from .query.pivot_config import PivotConfig
 from .query.validate import are_queries_equal, remove_empty_query_fields, validate_query
 from .results import pandas_adapter as _pandas_adapter  # noqa: F401  (attaches ResultSet.to_pandas/.df)
 
@@ -41,6 +43,7 @@ def cube(
 __all__ = [
     "cube",
     "CubeClient",
+    "AsyncCubeClient",
     "ResultSet",
     "Meta",
     "SqlQuery",
@@ -49,6 +52,7 @@ __all__ = [
     "RequestError",
     "MutexChangedError",
     "Query",
+    "PivotConfig",
     "Filter",
     "Member",
     "dim",

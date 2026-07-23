@@ -4,13 +4,19 @@ attempt, rather than JS's closure/subscribe re-invocation (see
 transport.base for why). `subscribe()`'s continuous long-poll and the mutex
 machinery are deferred to a later phase; this covers single-shot
 load/meta/sql/dry-run with Continue-wait and network-error retries.
+
+`run_polling_loop_async` is the same state machine with `await`s, for
+`AsyncCubeClient`. Keep the two in lockstep by hand — see the sync version's
+docstring for the retry/Continue-wait semantics both share.
 """
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import time as time_module
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Union
 
 from ..errors import RequestError
 from ..models.progress import ProgressResult
@@ -65,6 +71,57 @@ def run_polling_loop(
             if progress_callback:
                 progress_callback(ProgressResult(body))
             sleep(poll_interval)
+            continue
+
+        if response.status != 200:
+            raise RequestError(body.get("error") or "", body, response.status or 0)
+
+        return to_result(body)
+
+
+async def run_polling_loop_async(
+    *,
+    request_fn: Callable[[], Awaitable[RawResponse]],
+    to_result: Callable[[dict], Any],
+    poll_interval: float = 5.0,
+    network_error_retries: int = 0,
+    progress_callback: Optional[Callable[[ProgressResult], Union[None, Awaitable[None]]]] = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> Any:
+    retries_left = network_error_retries
+
+    while True:
+        response = await request_fn()
+
+        is_bad_gateway = response.status == 502
+        is_transport_error = response.error is not None
+
+        if is_bad_gateway or is_transport_error:
+            should_retry = is_bad_gateway
+            if is_transport_error and not is_bad_gateway:
+                retries_left -= 1
+                should_retry = retries_left >= 0
+            if should_retry:
+                await sleep(poll_interval)
+                continue
+
+        if response.error is not None and response.status is None:
+            raise RequestError(response.error, {"error": response.error}, 0)
+
+        text = response.text or ""
+        try:
+            body = json.loads(text)
+            if not isinstance(body, dict):
+                body = {"error": text}
+        except ValueError:
+            body = {"error": text}
+
+        if body.get("error") and "Continue wait" in body["error"]:
+            if progress_callback:
+                maybe_awaitable = progress_callback(ProgressResult(body))
+                if inspect.isawaitable(maybe_awaitable):
+                    await maybe_awaitable
+            await sleep(poll_interval)
             continue
 
         if response.status != 200:

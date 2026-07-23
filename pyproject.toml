@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cubejs-client"
 version = "0.1.0"
-description = "Pythonic client for Cube (cube.dev) semantic layer, with pandas integration (sync client; async is a planned later phase)"
+description = "Pythonic client for Cube (cube.dev) semantic layer, with pandas integration (sync and async clients)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -29,6 +29,7 @@ packages = ["src/cubejs_client"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 110

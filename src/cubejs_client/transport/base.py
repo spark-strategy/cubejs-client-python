@@ -24,3 +24,9 @@ class Transport(Protocol):
     authorization: Optional[str]
 
     def request(self, method: str, params: Mapping[str, Any]) -> RawResponse: ...
+
+
+class AsyncTransport(Protocol):
+    authorization: Optional[str]
+
+    async def request(self, method: str, params: Mapping[str, Any]) -> RawResponse: ...

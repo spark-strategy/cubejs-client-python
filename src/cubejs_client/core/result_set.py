@@ -1,12 +1,13 @@
-"""Port of ResultSet.ts (regularQuery path).
+"""Port of ResultSet.ts, including compareDateRangeQuery/blendingQuery support.
 
-This is a faithful, method-for-method port of the JS `ResultSet` class.
-compareDateRangeQuery/blendingQuery support (`mergePivots`, `decompose`, and
-the multi-result branches of `pivot`/`seriesNames`/`chartPivot`) is deferred
-to a later phase — see the project plan. Calling `pivot()` (and anything
-built on it) on a non-regularQuery ResultSet with more than one result
-currently raises `NotImplementedError` rather than silently doing the wrong
-thing.
+This is a faithful, method-for-method port of the JS `ResultSet` class:
+`pivot`/`chart_pivot`/`table_pivot`/`table_columns`/`series`/`series_names`
+all handle multi-result (`compareDateRangeQuery`/`blendingQuery`) load
+responses via `_merge_pivots`, mirroring JS's private `mergePivots`.
+`decompose()` splits a multi-result `ResultSet` back into one regularQuery
+`ResultSet` per result. `query()`/`raw_data()`/`annotation()` remain
+regularQuery-only, per JS (`decompose()` first if you need those on a
+compare/blending result).
 """
 
 from __future__ import annotations
@@ -273,11 +274,37 @@ class ResultSet:
             return result
 
         if len(self.load_responses) > 1:
-            raise NotImplementedError(
-                "Multi-result pivoting (compareDateRangeQuery/blendingQuery) is not supported yet"
-            )
+            pivots = [pivot_impl(index) for index in range(len(self.load_responses))]
+            return self._merge_pivots(pivots, normalized.get("joinDateRange") or False)
 
         return pivot_impl()
+
+    def _merge_pivots(self, pivots: List[list], join_date_range: bool) -> list:
+        min_length_pivot: Optional[List[dict]] = None
+        for current in pivots:
+            if min_length_pivot is not None and len(current) >= len(min_length_pivot):
+                continue
+            min_length_pivot = current
+        min_length_pivot = min_length_pivot or []
+
+        result = []
+        for index in range(len(min_length_pivot)):
+            if join_date_range:
+                x_values = [
+                    ", ".join(
+                        js_array_join(pivot[index]["xValues"] if index < len(pivot) else [], ",")
+                        for pivot in pivots
+                    )
+                ]
+            else:
+                x_values = min_length_pivot[index]["xValues"]
+
+            y_values_array: list = []
+            for pivot in pivots:
+                y_values_array.extend(pivot[index]["yValuesArray"])
+
+            result.append({"xValues": x_values, "yValuesArray": y_values_array})
+        return result
 
     # -- chart / table shapes --------------------------------------------
 
@@ -515,6 +542,19 @@ class ResultSet:
 
     def total_rows(self):
         return self.load_responses[0].get("total")
+
+    def decompose(self) -> List["ResultSet"]:
+        return [
+            ResultSet(
+                {
+                    "queryType": QUERY_TYPE_REGULAR,
+                    "pivotQuery": {**result["query"], "queryType": QUERY_TYPE_REGULAR},
+                    "results": [result],
+                },
+                self.options,
+            )
+            for result in self.load_responses
+        ]
 
     def raw_data(self) -> list:
         self._require_regular_query()
