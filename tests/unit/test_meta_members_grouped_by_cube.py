@@ -98,3 +98,33 @@ def test_members_grouped_by_cube_with_no_cubes_returns_empty_groups():
     meta = Meta({"cubes": []})
 
     assert meta.members_grouped_by_cube() == {"measures": [], "dimensions": [], "segments": [], "timeDimensions": []}
+
+
+def test_members_grouped_by_cube_tolerates_cubes_without_type_or_public():
+    # `type`/`public` are optional on a cube. JS reads them as `undefined`; this
+    # must yield None rather than raising KeyError.
+    meta = Meta(
+        {
+            "cubes": [
+                {
+                    "name": "Orders",
+                    "title": "Orders",
+                    "measures": [{"name": "Orders.count", "title": "Orders Count", "type": "number"}],
+                    "dimensions": [],
+                    "segments": [],
+                }
+            ]
+        }
+    )
+
+    grouped = meta.members_grouped_by_cube()
+
+    assert grouped["measures"] == [
+        {
+            "cubeName": "Orders",
+            "cubeTitle": "Orders",
+            "type": None,
+            "public": None,
+            "members": [{"name": "Orders.count", "title": "Orders Count", "type": "number"}],
+        }
+    ]
