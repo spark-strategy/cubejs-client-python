@@ -17,11 +17,20 @@ class RequestError(CubeError):
         self.status = status
 
 
-class MutexChangedError(CubeError):
-    """Raised internally when a newer request with the same mutex key superseded
-    this one; callers should not normally see this (mirrors JS's MUTEX_ERROR).
+class CubeSqlError(CubeError):
+    """Raised when a CubeSQL query (`cube_sql`) returns an error payload — either
+    a malformed response or an error chunk streamed after the schema line
+    (mirrors the `Error` thrown by JS `cubeSql`'s result parser)."""
 
-    Currently unused: the mutex machinery only matters for `subscribe()`'s
-    continuous long-poll, which is not implemented yet (deferred to a later
-    phase). Kept as a stub so that phase's error contract is already in place.
+
+class MutexChangedError(CubeError):
+    """Mirrors JS's `MUTEX_ERROR`, raised when a newer request with the same
+    mutex key superseded an older one (index.ts:153).
+
+    Intentionally unused in this port: JS needs the `mutexObj`/`mutexKey`
+    shared-dict pattern because it has no cancellation primitive for
+    fire-and-forget promises. `subscribe()` here instead uses native
+    cancellation (a `threading.Event` for the sync client, task cancellation for
+    the async one), so nothing raises this. Kept only so a caller that imported
+    it against the JS error name still resolves.
     """

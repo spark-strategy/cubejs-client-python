@@ -9,15 +9,17 @@ queries can be built with a fluent/operator DSL, while a faithful low-level core
 (`ResultSet`, pivoting, time-series generation) stays behaviorally verified
 against the JS SDK's own test fixtures.
 
-**Status:** Phases 0-4 — sync (`CubeClient`) and async (`AsyncCubeClient`) clients,
-both sharing one core, with `load()`/`meta()`/`sql()`/`dry_run()`; `ResultSet` covers
-`regularQuery`, `compareDateRangeQuery`, and `blendingQuery` (`table_pivot`,
-`chart_pivot`, `pivot`, `table_columns`, `series`/`series_names`, `decompose`,
-`drill_down`, etc.), including custom (PostgreSQL-interval-style) time granularities;
-`.to_pandas()`/`.df`; the fluent/operator query builder (`Query`, `dim()`/`measure()`);
-a `PivotConfig` builder for `to_pandas(pivot_config=...)`; and `Meta.members_grouped_by_cube()`.
-`subscribe()` and `cubeSql()` are tracked as later phases — see the project plan for the
-full roadmap. The client-side `format` module and WebSocket transport are out of scope.
+**Status:** Phases 0-6 — sync (`CubeClient`) and async (`AsyncCubeClient`) clients,
+both sharing one core, with `load()`/`meta()`/`sql()`/`dry_run()`/`subscribe()`/
+`cube_sql()`/`cube_sql_stream()`; `ResultSet` covers `regularQuery`,
+`compareDateRangeQuery`, and `blendingQuery` (`table_pivot`, `chart_pivot`, `pivot`,
+`table_columns`, `series`/`series_names`, `decompose`, `drill_down`, etc.), including
+custom (PostgreSQL-interval-style) time granularities; `.to_pandas()`/`.df`; the
+fluent/operator query builder (`Query`, `dim()`/`measure()`); a `PivotConfig` builder for
+`to_pandas(pivot_config=...)`; `Meta.members_grouped_by_cube()`; and a `compact`/`columnar`
+opt-in via `load(response_format=...)`. The client-side `format` module and WebSocket
+transport are out of scope. `subscribe()` degrades to HTTP polling (no push transport)
+and uses native cancellation rather than the JS `mutexObj`/`mutexKey` supersession API.
 
 ## Install
 
@@ -77,6 +79,50 @@ df = result_set.to_pandas(pivot_config=pivot_config)
 `PivotConfig` is a Pythonic convenience accepted by `to_pandas()`; `ResultSet`'s own
 methods (`pivot`, `chart_pivot`, `table_pivot`, ...) stay faithful to the JS core and
 take plain dicts only — call `.build()` first if calling those directly.
+
+### Direct SQL (`cube_sql` / `cube_sql_stream`)
+
+```python
+# One-shot: returns {"schema": [...], "data": [...], "lastRefreshTime"?: str}
+result = client.cube_sql("SELECT status, measure(count) FROM orders GROUP BY 1")
+for row in result["data"]:
+    print(row)
+
+# Streaming: typed chunks ({"type": "schema"|"data"|"error", ...})
+for chunk in client.cube_sql_stream("SELECT * FROM orders"):
+    if chunk["type"] == "data":
+        print(chunk["data"])
+
+# Async streaming
+async for chunk in async_client.cube_sql_stream("SELECT * FROM orders"):
+    ...
+```
+
+### Live updates (`subscribe`)
+
+```python
+def on_update(error, result_set):
+    if error is None:
+        print(result_set.table_pivot())
+
+subscription = client.subscribe({"measures": ["Logs.count"]}, on_update)
+# ... later ...
+subscription.unsubscribe()
+
+# Async: schedule an asyncio.Task, cancel with `await`
+subscription = async_client.subscribe({"measures": ["Logs.count"]}, on_update)
+await subscription.unsubscribe()
+```
+
+`subscribe()` re-polls every `poll_interval` seconds and calls `callback(error, result_set)`
+for each update; request errors are delivered to the callback without stopping the loop.
+
+### Requesting compact / columnar response formats
+
+```python
+# The wire format is decoded transparently; opt in to the smaller payload with:
+result_set = client.load({"measures": ["Orders.count"]}, response_format="compact")
+```
 
 ## Development
 

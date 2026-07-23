@@ -8,13 +8,14 @@ Bearer, x-request-id span counter).
 
 from __future__ import annotations
 
+from typing import Any, AsyncIterator, Dict, Mapping, Optional
 import json
-from typing import Any, Dict, Mapping, Optional
 from urllib.parse import urlencode
 
 import httpx
 
 from .base import RawResponse
+from .http_sync import _build_stream_url_and_body
 
 
 class AsyncHttpTransport:
@@ -94,3 +95,34 @@ class AsyncHttpTransport:
             return RawResponse(error="timeout")
         except httpx.HTTPError:
             return RawResponse(error="network Error")
+
+    async def request_stream(
+        self,
+        api_method: str,
+        *,
+        params: Mapping[str, Any],
+        http_method: str = "POST",
+        fetch_timeout: Optional[float] = None,
+        base_request_id: Optional[str] = None,
+    ) -> AsyncIterator[bytes]:
+        """Async twin of HttpTransport.request_stream — see there for semantics."""
+        request_method = http_method or self.method or "POST"
+        url, body = _build_stream_url_and_body(self.api_url, api_method, params, request_method)
+
+        headers = dict(self.headers)
+        if request_method == "POST":
+            headers["Content-Type"] = "application/json"
+        if self.authorization is not None:
+            headers["Authorization"] = self.authorization
+        headers["x-request-id"] = base_request_id or "stream-request"
+
+        effective_timeout = fetch_timeout or self.fetch_timeout
+        timeout = (effective_timeout / 1000) if effective_timeout else None
+
+        async with self._client.stream(
+            request_method, url, headers=headers, json=body, timeout=timeout
+        ) as response:
+            if response.status_code >= 400:
+                raise RuntimeError(f"HTTP {response.status_code}: {response.reason_phrase}")
+            async for chunk in response.aiter_bytes():
+                yield chunk

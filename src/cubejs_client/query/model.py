@@ -102,3 +102,13 @@ def to_query_dict(query: QueryLike) -> dict:
     if isinstance(query, Query):
         return query.build()
     return dict(query)
+
+
+def patch_query_response_format(query_dict: dict, response_format: str) -> dict:
+    """Add ``responseFormat`` to a query when a compact/columnar format is
+    requested (port of ``patchQueryInternal``, index.ts:468-480). Returns the
+    query unchanged for the default format or when it already asks for that
+    format."""
+    if response_format in ("compact", "columnar") and query_dict.get("responseFormat") != response_format:
+        return {**query_dict, "responseFormat": response_format}
+    return query_dict
