@@ -21,6 +21,9 @@ opt-in via `load(response_format=...)`. The client-side `format` module and WebS
 transport are out of scope. `subscribe()` degrades to HTTP polling (no push transport)
 and uses native cancellation rather than the JS `mutexObj`/`mutexKey` supersession API.
 
+📖 **[Full API Reference](./API_REFERENCE.md)** — every class, method, and type, with
+verified example output and a list of differences from the JS SDK.
+
 ## Install
 
 ```bash
