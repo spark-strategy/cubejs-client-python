@@ -63,6 +63,20 @@ class Meta:
         members = [m for cube in self.cubes for m in cube.get(member_type, [])]
         return sorted(members, key=lambda m: m["title"])
 
+    def members_grouped_by_cube(self) -> Dict[str, List[dict]]:
+        grouped: Dict[str, List[dict]] = {"measures": [], "dimensions": [], "segments": [], "timeDimensions": []}
+
+        for cube in self.cubes:
+            wrapper = {"cubeName": cube["name"], "cubeTitle": cube["title"], "type": cube["type"], "public": cube["public"]}
+            grouped["measures"].append({**wrapper, "members": cube.get("measures") or []})
+            grouped["dimensions"].append({**wrapper, "members": cube.get("dimensions") or []})
+            grouped["segments"].append({**wrapper, "members": cube.get("segments") or []})
+            grouped["timeDimensions"].append(
+                {**wrapper, "members": [d for d in (cube.get("dimensions") or []) if d.get("type") == "time"]}
+            )
+
+        return grouped
+
     def resolve_member(self, member_name: str, member_type: Union[str, Sequence[str]]) -> dict:
         cube_name = member_name.split(".")[0]
         cube = self.cubes_map.get(cube_name)
