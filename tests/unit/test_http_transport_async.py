@@ -3,17 +3,17 @@ import json
 import httpx
 import respx
 
-from cubejs_client.transport.http_sync import HttpTransport
+from cubejs_client.transport.http_async import AsyncHttpTransport
 
 
 @respx.mock
-def test_get_request_with_json_encoded_query_param():
+async def test_get_request_with_json_encoded_query_param():
     route = respx.get("http://localhost:4000/cubejs-api/v1/load").mock(
         return_value=httpx.Response(200, json={"data": []})
     )
 
-    transport = HttpTransport(api_url="http://localhost:4000/cubejs-api/v1", authorization="TOKEN")
-    response = transport.request("load", {"query": {"measures": ["Orders.count"]}})
+    transport = AsyncHttpTransport(api_url="http://localhost:4000/cubejs-api/v1", authorization="TOKEN")
+    response = await transport.request("load", {"query": {"measures": ["Orders.count"]}})
 
     assert route.called
     sent = route.calls[0].request
@@ -22,42 +22,40 @@ def test_get_request_with_json_encoded_query_param():
 
 
 @respx.mock
-def test_authorization_header_has_no_bearer_prefix():
+async def test_authorization_header_has_no_bearer_prefix():
     route = respx.get("http://localhost:4000/cubejs-api/v1/meta").mock(
         return_value=httpx.Response(200, json={"cubes": []})
     )
 
-    transport = HttpTransport(api_url="http://localhost:4000/cubejs-api/v1", authorization="RAW-JWT-TOKEN")
-    transport.request("meta", {})
+    transport = AsyncHttpTransport(api_url="http://localhost:4000/cubejs-api/v1", authorization="RAW-JWT-TOKEN")
+    await transport.request("meta", {})
 
     sent = route.calls[0].request
     assert sent.headers["Authorization"] == "RAW-JWT-TOKEN"
 
 
 @respx.mock
-def test_forced_post_method_sends_json_body_with_content_type():
+async def test_forced_post_method_sends_json_body_with_content_type():
     route = respx.post("http://localhost:4000/cubejs-api/v1/load").mock(
         return_value=httpx.Response(200, json={"data": []})
     )
 
-    transport = HttpTransport(api_url="http://localhost:4000/cubejs-api/v1")
-    transport.request("load", {"query": {"measures": ["Orders.count"]}, "method": "POST"})
+    transport = AsyncHttpTransport(api_url="http://localhost:4000/cubejs-api/v1")
+    await transport.request("load", {"query": {"measures": ["Orders.count"]}, "method": "POST"})
 
     sent = route.calls[0].request
     assert sent.headers["content-type"] == "application/json"
     assert sent.url.params.get("query") is None
-    # The body must carry `query` as a real nested JSON object (matching JS's
-    # `JSON.stringify(params)`), not the query-string-encoded stringified form.
     assert json.loads(sent.content) == {"query": {"measures": ["Orders.count"]}}
 
 
 @respx.mock
-def test_x_request_id_span_counter_increments_per_call():
+async def test_x_request_id_span_counter_increments_per_call():
     respx.get("http://localhost:4000/cubejs-api/v1/load").mock(return_value=httpx.Response(200, json={}))
 
-    transport = HttpTransport(api_url="http://localhost:4000/cubejs-api/v1")
-    transport.request("load", {"baseRequestId": "req-1"})
-    transport.request("load", {"baseRequestId": "req-1"})
+    transport = AsyncHttpTransport(api_url="http://localhost:4000/cubejs-api/v1")
+    await transport.request("load", {"baseRequestId": "req-1"})
+    await transport.request("load", {"baseRequestId": "req-1"})
 
     calls = respx.calls
     assert calls[0].request.headers["x-request-id"] == "req-1-span-1"
@@ -65,13 +63,13 @@ def test_x_request_id_span_counter_increments_per_call():
 
 
 @respx.mock
-def test_non_200_status_is_surfaced_without_raising():
+async def test_non_200_status_is_surfaced_without_raising():
     respx.get("http://localhost:4000/cubejs-api/v1/load").mock(
         return_value=httpx.Response(403, json={"error": "Forbidden"})
     )
 
-    transport = HttpTransport(api_url="http://localhost:4000/cubejs-api/v1")
-    response = transport.request("load", {})
+    transport = AsyncHttpTransport(api_url="http://localhost:4000/cubejs-api/v1")
+    response = await transport.request("load", {})
 
     assert response.status == 403
     assert "Forbidden" in response.text

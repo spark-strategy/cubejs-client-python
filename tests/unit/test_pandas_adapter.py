@@ -1,4 +1,5 @@
 from cubejs_client.core.result_set import ResultSet
+from cubejs_client.query.pivot_config import PivotConfig
 
 
 def _make_result_set():
@@ -40,4 +41,14 @@ def test_to_pandas_chart_kind_matches_chart_pivot_rows():
     df = rs.to_pandas(kind="chart")
 
     assert list(df["x"]) == ["A", "B"]
+    assert list(df["Foo.count"]) == [1, 2]
+
+
+def test_to_pandas_accepts_pivot_config_instance():
+    rs = _make_result_set()
+
+    pivot_config = PivotConfig().x("Foo.name").y("measures")
+    df = rs.to_pandas(pivot_config=pivot_config)
+
+    assert list(df["Foo.name"]) == ["A", "B"]
     assert list(df["Foo.count"]) == [1, 2]

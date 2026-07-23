@@ -10,11 +10,10 @@ package, so `cubejs_client/__init__.py` always imports it).
 
 from __future__ import annotations
 
-from typing import Optional
-
 import pandas as pd
 
 from ..core.result_set import ResultSet
+from ..query.pivot_config import PivotConfigLike, to_pivot_config_dict
 
 
 def _flatten_columns(columns: list) -> list:
@@ -27,7 +26,8 @@ def _flatten_columns(columns: list) -> list:
     return flat
 
 
-def to_dataframe(result_set: ResultSet, pivot_config: Optional[dict] = None, kind: str = "table") -> pd.DataFrame:
+def to_dataframe(result_set: ResultSet, pivot_config: PivotConfigLike = None, kind: str = "table") -> pd.DataFrame:
+    pivot_config = to_pivot_config_dict(pivot_config)
     if kind == "table":
         rows = result_set.table_pivot(pivot_config)
         columns = _flatten_columns(result_set.table_columns(pivot_config))
@@ -62,7 +62,7 @@ def to_dataframe(result_set: ResultSet, pivot_config: Optional[dict] = None, kin
     raise ValueError(f"Unknown kind: {kind!r} (expected 'table' or 'chart')")
 
 
-def _to_pandas(self: ResultSet, pivot_config: Optional[dict] = None, kind: str = "table") -> pd.DataFrame:
+def _to_pandas(self: ResultSet, pivot_config: PivotConfigLike = None, kind: str = "table") -> pd.DataFrame:
     return to_dataframe(self, pivot_config=pivot_config, kind=kind)
 
 

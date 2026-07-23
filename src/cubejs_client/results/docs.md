@@ -11,7 +11,7 @@ Path: @/src/cubejs_client/results
 - `cubejs_client/__init__.py` (@/src/cubejs_client/docs.md) always imports this module (as `_pandas_adapter`, for its side effect) because pandas is a required dependency of the package, not an optional extra — so `to_pandas()`/`.df` are available on every `ResultSet` returned by `CubeClient.load()` (@/src/cubejs_client/client/docs.md) without the caller needing to import anything extra.
 
 ### Core Implementation
-- `to_dataframe(result_set, pivot_config=None, kind="table")`: the actual conversion logic, dispatching on `kind`:
+- `to_dataframe(result_set, pivot_config=None, kind="table")`: `pivot_config` accepts a plain dict, a @/src/cubejs_client/query/docs.md `PivotConfig` builder instance, or `None` — this is the *only* place in the package that accepts a `PivotConfig` directly, via `to_pivot_config_dict()`, which lowers it to a dict (or passes `None`/a dict through unchanged) before handing it to `ResultSet`'s own methods, which take plain dicts only. The rest of the conversion logic dispatches on `kind`:
   - `kind="table"` (default): builds a `DataFrame` from `table_pivot()` rows, reordered to match `table_columns()`'s flattened (nested columns flattened via `_flatten_columns`) `dataIndex` order, then applies dtype casting per-column based on `table_columns()`'s `type` metadata (`"number"` → `pd.to_numeric`, `"time"` → `pd.to_datetime`).
   - `kind="chart"`: builds a `DataFrame` directly from `chart_pivot()` rows with no further casting.
 - `_to_pandas`/`_df` are thin wrappers around `to_dataframe()`, attached onto the `ResultSet` class at import time as `ResultSet.to_pandas` (method) and `ResultSet.df` (property, `kind="table"` only) via direct monkey-patching (`ResultSet.to_pandas = _to_pandas`).

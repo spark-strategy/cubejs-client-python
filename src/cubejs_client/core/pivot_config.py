@@ -14,6 +14,12 @@ def time_dimension_member(td: Mapping[str, Any]) -> str:
 def get_normalized_pivot_config(
     query: Optional[Mapping[str, Any]], pivot_config: Optional[Mapping[str, Any]] = None
 ) -> dict:
+    if pivot_config is not None and not isinstance(pivot_config, Mapping):
+        raise TypeError(
+            f"pivot_config must be a dict or None, got {type(pivot_config).__name__}. "
+            "If you built one with the PivotConfig builder, call `.build()` first."
+        )
+
     default_pivot_config = {"x": [], "y": [], "fillMissingDates": True, "joinDateRange": False}
 
     query = query or {}

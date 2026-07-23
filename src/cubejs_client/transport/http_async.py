@@ -1,4 +1,10 @@
-"""Port of HttpTransport.ts (sync half only; requestStream/streaming is Phase 6)."""
+"""Async twin of http_sync.py (port of HttpTransport.ts, async half).
+
+Kept in lockstep with `HttpTransport` by hand — same URL/method/header/span
+logic, `httpx.AsyncClient` instead of `httpx.Client`. See http_sync.py for
+the JS semantics being preserved (GET/POST switching, Authorization without
+Bearer, x-request-id span counter).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ import httpx
 from .base import RawResponse
 
 
-class HttpTransport:
+class AsyncHttpTransport:
     def __init__(
         self,
         *,
@@ -21,7 +27,7 @@ class HttpTransport:
         headers: Optional[Mapping[str, str]] = None,
         credentials: Optional[str] = None,
         fetch_timeout: Optional[float] = None,
-        client: Optional[httpx.Client] = None,
+        client: Optional[httpx.AsyncClient] = None,
     ):
         self.api_url = api_url.rstrip("/")
         self.authorization = authorization
@@ -29,7 +35,7 @@ class HttpTransport:
         self.headers: Dict[str, str] = dict(headers or {})
         self.credentials = credentials
         self.fetch_timeout = fetch_timeout
-        self._client = client or httpx.Client()
+        self._client = client or httpx.AsyncClient()
         self._span_counters: Dict[str, int] = {}
 
     def _next_span_header(self, base_request_id: Optional[str]) -> Optional[str]:
@@ -39,7 +45,7 @@ class HttpTransport:
         self._span_counters[base_request_id] = span + 1
         return f"{base_request_id}-span-{span}"
 
-    def request(self, api_method: str, params: Mapping[str, Any]) -> RawResponse:
+    async def request(self, api_method: str, params: Mapping[str, Any]) -> RawResponse:
         params = dict(params)
         method = params.pop("method", None)
         fetch_timeout = params.pop("fetchTimeout", None) or self.fetch_timeout
@@ -72,7 +78,7 @@ class HttpTransport:
         timeout = (fetch_timeout / 1000) if fetch_timeout else None
 
         try:
-            response = self._client.request(
+            response = await self._client.request(
                 request_method,
                 url,
                 headers=headers,
